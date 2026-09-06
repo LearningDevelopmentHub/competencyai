@@ -1,0 +1,4 @@
+export const i18n_vi = {
+  'competencies.title': 'Danh sách Năng lực',
+  'competencies.dendrogram': 'Sơ đồ phân cấp',
+}

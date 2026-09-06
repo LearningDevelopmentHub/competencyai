@@ -1,0 +1,4 @@
+export const i18n_en = {
+  'competencies.title': 'Competencies',
+  'competencies.dendrogram': 'Dendrogram',
+}
