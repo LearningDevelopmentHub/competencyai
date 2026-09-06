@@ -1,0 +1,11 @@
+{
+  "name": "competencyai",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "pnpm --filter packages/db run prisma:generate"
+  }
+}

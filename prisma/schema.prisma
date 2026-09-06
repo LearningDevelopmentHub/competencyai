@@ -1,0 +1,594 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum Framework {
+  KORN_FERRY
+  KSAO
+}
+
+enum CompetencyStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum UnitType {
+  COMPANY
+  BLOCK
+  DEPARTMENT
+  SECTION
+  TEAM
+  OTHER
+}
+
+enum RolePermissionScope {
+  GLOBAL
+  ORG_UNIT
+  OWN_RESOURCE
+}
+
+enum PermissionAction {
+  READ
+  CREATE
+  UPDATE
+  DELETE
+  MANAGE
+}
+
+enum ProficiencyScaleDefault {
+  KF_4
+  CUSTOM
+}
+
+enum CampaignStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum RaterType {
+  SELF
+  MANAGER
+  PEER
+  DIRECT_REPORT
+  OTHER
+}
+
+enum CalibrationRatingValue {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AssessmentSubmissionStatus {
+  PENDING
+  SUBMITTED
+  REVIEWED
+}
+
+enum AiProvider {
+  MOCK
+  GEMINI
+  CLAUDE
+}
+
+// Core models
+
+model User {
+  id            String      @id @default(uuid())
+  email         String      @unique
+  passwordHash  String
+  displayName   Json?
+  roles         UserRole[]
+  scopes        UserScope[]
+  employee      Employee?   @relation(fields: [employeeId], references: [id])
+  employeeId    String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  auditLogs     AuditLog[]  @relation("audit_actor")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  description Json?
+  permissions RolePermission[]
+  userRoles   UserRole[]
+  createdAt   DateTime         @default(now())
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  resource    String
+  action      PermissionAction
+  description String?
+  rolePerms   RolePermission[]
+  @@unique([resource, action])
+}
+
+model RolePermission {
+  id        String            @id @default(uuid())
+  role      Role              @relation(fields: [roleId], references: [id])
+  roleId    String
+  permission Permission       @relation(fields: [permissionId], references: [id])
+  permissionId String
+  scope     RolePermissionScope @default(GLOBAL)
+  createdAt DateTime          @default(now())
+
+  @@unique([roleId, permissionId])
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+  roleId    String
+  assignedBy String?
+  assignedAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+}
+
+model UserScope {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id])
+  userId    String
+  orgUnit   OrgUnit?  @relation(fields: [orgUnitId], references: [id])
+  orgUnitId String?
+  scopeType String
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actor      User?    @relation("audit_actor", fields: [actorId], references: [id])
+  actorId    String?
+  action     String
+  entity     String
+  entityId   String?
+  diff       Json?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+}
+
+model OrgUnit {
+  id          String     @id @default(uuid())
+  code        String?    @unique
+  name        Json
+  parent      OrgUnit?   @relation("OrgUnitToChildren", fields: [parentId], references: [id])
+  parentId    String?
+  children    OrgUnit[]  @relation("OrgUnitToChildren")
+  tier        Int
+  unitType    UnitType
+  manager     Employee?  @relation("OrgUnitManager", fields: [managerId], references: [id])
+  managerId   String?
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([parentId])
+  @@index([tier])
+}
+
+model Employee {
+  id            String     @id @default(uuid())
+  employeeCode  String     @unique
+  user          User?      @relation(fields: [userId], references: [id])
+  userId        String?
+  fullName      Json
+  jobTitle      String?
+  orgUnit       OrgUnit?   @relation(fields: [orgUnitId], references: [id])
+  orgUnitId     String?
+  manager       Employee?  @relation("EmployeeManager", fields: [managerId], references: [id])
+  managerId     String?
+  directReports Employee[] @relation("EmployeeManager")
+  hiredAt       DateTime?
+  terminatedAt  DateTime?
+  attributes    Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([orgUnitId])
+  @@index([managerId])
+}
+
+model CompetencyCategory {
+  id          String    @id @default(uuid())
+  framework   Framework
+  code        String    @unique
+  name        Json
+  description Json?
+  createdAt   DateTime  @default(now())
+  clusters    CompetencyCluster[]
+}
+
+model CompetencyLibrary {
+  id          String   @id @default(uuid())
+  orgUnit     OrgUnit? @relation(fields: [orgUnitId], references: [id])
+  orgUnitId   String?
+  name        Json
+  description Json?
+  competencies Competency[]
+  createdAt   DateTime @default(now())
+}
+
+model CompetencyCluster {
+  id          String   @id @default(uuid())
+  category    CompetencyCategory @relation(fields: [categoryId], references: [id])
+  categoryId  String
+  name        Json
+  description Json?
+  competencies Competency[]
+  createdAt   DateTime @default(now())
+}
+
+model Competency {
+  id                 String               @id @default(uuid())
+  code               String               @unique
+  library            CompetencyLibrary?   @relation(fields: [libraryId], references: [id])
+  libraryId          String?
+  cluster            CompetencyCluster?   @relation(fields: [clusterId], references: [id])
+  clusterId          String?
+  currentVersionId   String?
+  currentVersion     CompetencyVersion?   @relation("Competency_current", fields: [currentVersionId], references: [id])
+  createdAt          DateTime             @default(now())
+  versions           CompetencyVersion[]  @relation("Competency_versions")
+  ksaoElements       KsaoElement[]
+  codeMetadata       Json?
+  @@index([libraryId])
+}
+
+model CompetencyVersion {
+  id             String     @id @default(uuid())
+  competency     Competency @relation("Competency_versions", fields: [competencyId], references: [id])
+  competencyId   String
+  versionNumber  Int
+  status         CompetencyStatus @default(DRAFT)
+  effectiveDate  DateTime?
+  title          Json
+  summary        Json?
+  behavioralIndicators BehavioralIndicator[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([competencyId, versionNumber])
+  @@unique([competencyId, versionNumber])
+}
+
+model BehavioralIndicator {
+  id                  String   @id @default(uuid())
+  competencyVersion   CompetencyVersion @relation(fields: [competencyVersionId], references: [id])
+  competencyVersionId String
+  proficiencyLevel    Int
+  text                Json
+  evidenceExamples    Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([competencyVersionId, proficiencyLevel])
+}
+
+model ProficiencyScale {
+  id        String            @id @default(uuid())
+  name      Json
+  framework ProficiencyScaleDefault @default(KF_4)
+  metadata  Json?
+  levels    ProficiencyLevel[]
+  createdAt DateTime          @default(now())
+}
+
+model ProficiencyLevel {
+  id           String  @id @default(uuid())
+  scale        ProficiencyScale @relation(fields: [scaleId], references: [id])
+  scaleId      String
+  ordinal      Int
+  label        Json
+  description  Json?
+  @@unique([scaleId, ordinal])
+  @@index([scaleId])
+}
+
+model KsaoElement {
+  id            String    @id @default(uuid())
+  competency    Competency @relation(fields: [competencyId], references: [id])
+  competencyId  String
+  kind          String
+  detail        Json
+  createdAt     DateTime   @default(now())
+}
+
+model JobFamily {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        Json
+  careerStream Json?
+  jobLevels   JobLevel[]
+  createdAt   DateTime @default(now())
+}
+
+model JobLevel {
+  id           String   @id @default(uuid())
+  jobFamily    JobFamily @relation(fields: [jobFamilyId], references: [id])
+  jobFamilyId  String
+  levelCode    String
+  name         Json
+  stageOfContribution Int
+  isManagerial Boolean  @default(false)
+  rank         Int
+  createdAt    DateTime @default(now())
+
+  @@index([jobFamilyId])
+  @@unique([jobFamilyId, levelCode])
+}
+
+model SalaryGrade {
+  id       String @id @default(uuid())
+  name     String
+  minSalary Int?
+  maxSalary Int?
+  gradeMappings GradeMapping[]
+}
+
+model GradeMapping {
+  id         String   @id @default(uuid())
+  jobLevel   JobLevel @relation(fields: [jobLevelId], references: [id])
+  jobLevelId String
+  salaryGrade SalaryGrade @relation(fields: [salaryGradeId], references: [id])
+  salaryGradeId String
+  createdAt  DateTime @default(now())
+}
+
+model SuccessProfile {
+  id          String   @id @default(uuid())
+  jobFamily   JobFamily? @relation(fields: [jobFamilyId], references: [id])
+  jobFamilyId String?
+  jobLevel    JobLevel?   @relation(fields: [jobLevelId], references: [id])
+  jobLevelId  String?
+  orgUnit     OrgUnit?    @relation(fields: [orgUnitId], references: [id])
+  orgUnitId   String?
+  name        Json
+  description Json?
+  profileCompetencies ProfileCompetency[]
+  profileKsaos ProfileKsao[]
+  profileAttributes ProfileAttribute[]
+  jobDescriptions JobDescription[]
+  createdAt   DateTime @default(now())
+}
+
+model ProfileCompetency {
+  id                 String @id @default(uuid())
+  successProfile     SuccessProfile @relation(fields: [profileId], references: [id])
+  profileId          String
+  competency         Competency @relation(fields: [competencyId], references: [id])
+  competencyId       String
+  importance         Int
+  roleCategory       String
+  targetProficiency  Int
+  createdAt          DateTime @default(now())
+  @@index([profileId])
+}
+
+model ProfileKsao {
+  id            String @id @default(uuid())
+  successProfile SuccessProfile @relation(fields: [profileId], references: [id])
+  profileId     String
+  ksaoElement   KsaoElement @relation(fields: [ksaoId], references: [id])
+  ksaoId        String
+  requiredLevel Int?
+  createdAt     DateTime @default(now())
+}
+
+model AttributeLibrary {
+  id       String @id @default(uuid())
+  name     Json
+  kind     String
+  createdAt DateTime @default(now())
+}
+
+model ProfileAttribute {
+  id        String @id @default(uuid())
+  profile   SuccessProfile @relation(fields: [profileId], references: [id])
+  profileId String
+  attribute AttributeLibrary @relation(fields: [attributeId], references: [id])
+  attributeId String
+  importance Int
+}
+
+model JobDescription {
+  id              String @id @default(uuid())
+  successProfile  SuccessProfile @relation(fields: [profileId], references: [id])
+  profileId       String
+  versionNumber   Int
+  title           Json
+  content         Json
+  generatedBy     String?
+  createdAt       DateTime @default(now())
+
+  @@unique([profileId, versionNumber])
+}
+
+model AssessmentCampaign {
+  id           String @id @default(uuid())
+  name         Json
+  description  Json?
+  status       CampaignStatus @default(DRAFT)
+  startAt      DateTime?
+  endAt        DateTime?
+  createdAt    DateTime @default(now())
+  raterAssignments RaterAssignment[]
+  snapshots    CompetencyScoreSnapshot[]
+}
+
+model RaterAssignment {
+  id         String @id @default(uuid())
+  campaign   AssessmentCampaign @relation(fields: [campaignId], references: [id])
+  campaignId String
+  subject    Employee @relation(fields: [employeeId], references: [id])
+  employeeId String
+  rater      Employee @relation("RaterAssignToEmployee", fields: [raterId], references: [id])
+  raterId    String
+  raterType  RaterType
+  createdAt  DateTime @default(now())
+
+  @@index([campaignId, employeeId])
+}
+
+model AssessmentSubmission {
+  id           String @id @default(uuid())
+  assignment   RaterAssignment @relation(fields: [assignmentId], references: [id])
+  assignmentId String
+  submittedBy  Employee? @relation(fields: [submittedById], references: [id])
+  submittedById String?
+  status       AssessmentSubmissionStatus @default(PENDING)
+  submittedAt  DateTime?
+  responses    RaterResponse[]
+  createdAt    DateTime @default(now())
+}
+
+model RaterResponse {
+  id         String @id @default(uuid())
+  submission AssessmentSubmission @relation(fields: [submissionId], references: [id])
+  submissionId String
+  competency Competency @relation(fields: [competencyId], references: [id])
+  competencyId String
+  score      Int
+  evidence   Evidence[]
+  comment    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([submissionId, competencyId])
+}
+
+model Evidence {
+  id        String @id @default(uuid())
+  response  RaterResponse @relation(fields: [responseId], references: [id])
+  responseId String
+  text      Json?
+  attachments EvidenceAttachment[]
+  createdAt DateTime @default(now())
+}
+
+model EvidenceAttachment {
+  id          String @id @default(uuid())
+  evidence    Evidence @relation(fields: [evidenceId], references: [id])
+  evidenceId  String
+  filename    String
+  url         String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model CompetencyScoreSnapshot {
+  id            String @id @default(uuid())
+  campaign      AssessmentCampaign @relation(fields: [campaignId], references: [id])
+  campaignId    String
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  employeeId    String
+  scores        Json
+  calibrationRating String?
+  createdAt     DateTime @default(now())
+  periodLabel   String?
+  @@index([campaignId, employeeId])
+}
+
+model CalibrationSession {
+  id        String @id @default(uuid())
+  name      String
+  description Json?
+  sessionDate DateTime?
+  ratings   CalibrationRating[]
+  createdAt DateTime @default(now())
+}
+
+model CalibrationRating {
+  id         String @id @default(uuid())
+  session    CalibrationSession @relation(fields: [sessionId], references: [id])
+  sessionId  String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  employeeId String
+  boxX       Int
+  boxY       Int
+  rating     CalibrationRatingValue
+  note       Json?
+  createdAt  DateTime @default(now())
+}
+
+model SuccessionPlan {
+  id         String @id @default(uuid())
+  name       Json
+  description Json?
+  createdAt  DateTime @default(now())
+  candidates SuccessionCandidate[]
+}
+
+model SuccessionCandidate {
+  id           String @id @default(uuid())
+  plan         SuccessionPlan @relation(fields: [planId], references: [id])
+  planId       String
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  employeeId   String
+  readiness    String
+  flightRisk   String
+  notes        Json?
+  createdAt    DateTime @default(now())
+}
+
+model LearningResource {
+  id          String @id @default(uuid())
+  title       Json
+  url         String
+  provider    String?
+  tags        Json?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model DevelopmentPlan {
+  id        String @id @default(uuid())
+  employee  Employee @relation(fields: [employeeId], references: [id])
+  employeeId String
+  name      Json
+  items     DevItem[]
+  createdAt DateTime @default(now())
+}
+
+model DevItem {
+  id             String @id @default(uuid())
+  plan           DevelopmentPlan @relation(fields: [planId], references: [id])
+  planId         String
+  title          Json
+  targetDate     DateTime?
+  learningResource LearningResource? @relation(fields: [learningResourceId], references: [id])
+  learningResourceId String?
+  ownerId        String?
+  status         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([planId])
+}
+
+model AiJob {
+  id          String @id @default(uuid())
+  provider    AiProvider @default(MOCK)
+  prompt      Json
+  response    Json?
+  status      String
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
